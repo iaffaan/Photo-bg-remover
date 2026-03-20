@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="glass" style="max-width: 760px; margin: 2rem auto; padding: 2rem;">
+    <h2 class="text-center" style="margin-bottom: 1.25rem; color: var(--primary-color);">
+        Generated Passport Photo
+    </h2>
+    <p class="text-center" style="color: var(--secondary-color); margin-bottom: 1.5rem;">
+        Background removed and resized to passport format.
+    </p>
+
+    <div style="display: flex; justify-content: center; margin-bottom: 1.5rem;">
+        <img
+            src="data:image/jpeg;base64,{{ image_data }}"
+            alt="Generated passport photo"
+            style="max-width: 100%; border-radius: 0.75rem; box-shadow: var(--glass-shadow);"
+        >
+    </div>
+
+    <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+        <a
+            href="data:image/jpeg;base64,{{ image_data }}"
+            download="passport_photo.jpg"
+            class="btn btn-primary"
+        >
+            <i class="fa-solid fa-download"></i> Download Photo
+        </a>
+        <a href="{{ url_for('upload') }}" class="btn btn-secondary">
+            <i class="fa-solid fa-arrow-left"></i> Generate Another
+        </a>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+            <i class="fa-solid fa-table-columns"></i> Go to Dashboard
+        </a>
+    </div>
+</div>
+{% endblock %}

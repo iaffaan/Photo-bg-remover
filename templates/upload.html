@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="glass" style="max-width: 800px; margin: 2rem auto; padding: 3rem;">
+    <h2 class="text-center" style="margin-bottom: 2rem; color: var(--primary-color);">Generate Passport Photo</h2>
+    
+    <form id="upload-form" method="POST" action="" enctype="multipart/form-data">
+        <div id="drop-zone" class="drop-zone">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <h3>Drag & Drop your photo here</h3>
+            <p class="mt-4" style="color: var(--secondary-color);">or click to browse from your device</p>
+            <p style="font-size: 0.85rem; margin-top: 0.75rem; color: var(--secondary-color);">Supports JPG, PNG (Max 5MB)</p>
+            <input type="file" id="photo-input" name="photo" class="file-input" accept=".jpg,.jpeg,.png">
+        </div>
+
+        <div id="preview-container" class="preview-container">
+            <img id="preview-image" src="" alt="Preview">
+            <div>
+                <button type="button" class="btn btn-secondary mt-4" onclick="document.getElementById('photo-input').click()">
+                    <i class="fa-solid fa-rotate"></i> Change Photo
+                </button>
+            </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 2rem;">
+            <label style="margin-bottom: 1rem; font-size: 1.1rem;">Select Background Color</label>
+            <div class="color-options">
+                <label class="color-option">
+                    <input type="radio" name="bg_color" value="white" checked>
+                    <span class="color-box color-white">White</span>
+                </label>
+                <label class="color-option">
+                    <input type="radio" name="bg_color" value="blue">
+                    <span class="color-box color-blue">Blue</span>
+                </label>
+                <label class="color-option">
+                    <input type="radio" name="bg_color" value="red">
+                    <span class="color-box color-red">Red</span>
+                </label>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; font-size: 1.15rem; padding: 1rem; margin-top: 1rem;">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Passport Photo
+        </button>
+    </form>
+</div>
+
+<!-- Loader Screen -->
+<div id="loader" class="loader-overlay">
+    <div class="spinner"></div>
+    <h2 style="margin-bottom: 0.5rem;">AI is processing your photo</h2>
+    <p style="color: #cbd5e1;">Removing background and resizing to 600x600...</p>
+</div>
+{% endblock %}
