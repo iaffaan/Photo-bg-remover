@@ -5,6 +5,7 @@ import datetime
 import logging
 import time
 import base64
+import json
 import requests
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -23,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize Firebase
-cred_path = 'firebase_key.json'
+
 db = None
 bucket = None
 
@@ -50,18 +51,20 @@ def get_remove_bg_api_key():
     return ""
 
 try:
-    if os.path.exists(cred_path):
-        if not firebase_admin._apps:
-            cred = credentials.Certificate(cred_path)
-            # Make sure to update 'storageBucket' with your actual Firebase project bucket name
-            firebase_admin.initialize_app(cred, {
-                'storageBucket': 'passport-photo-app-dc549.appspot.com'  # FIXME: Update this
-            })
+    firebase_key = os.getenv("FIREBASE_KEY")
+
+    if firebase_key:
+      if not firebase_admin._apps:
+        cred_dict = json.loads(firebase_key)
+        cred = credentials.Certificate(cred_dict)
+        firebase_admin.initialize_app(cred, {
+            'storageBucket': 'passport-photo-app-dc549.appspot.com'
+        })
         db = firestore.client()
         bucket = storage.bucket()
-        logger.info("Firebase initialized successfully.")
     else:
-        logger.warning(f"Firebase key not found at {cred_path}. Firebase functions will not work.")
+      logger.warning("Firebase key not found")
+
 except Exception as e:
     logger.error(f"Firebase initialization error: {e}")
 
