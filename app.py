@@ -14,7 +14,7 @@ from PIL import Image, ImageOps
 from supabase import create_client, Client
 
 app = Flask(__name__)
-app.secret_key = 'super_secret_key_for_passport_generator'  # In prod, use environment variable
+app.secret_key = os.getenv('SECRET_KEY', 'super_secret_key_for_passport_generator')
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB limit
 app.config['UPLOAD_EXTENSIONS'] = ['.jpg', '.jpeg', '.png']
 
@@ -266,7 +266,7 @@ def register():
         
         try:
             res = supabase.table('users').select('*').eq('email', email).execute()
-            if res.data:
+            if res and hasattr(res, 'data') and res.data:
                 flash("Email already registered.", "danger")
                 return redirect(url_for('register'))
                 
@@ -304,22 +304,28 @@ def login():
         
         try:
             res = supabase.table('users').select('*').eq('email', email).execute()
-            if not res.data:
+            
+            if not res or not hasattr(res, 'data') or not res.data:
                 flash("Invalid email or password.", "danger")
                 return redirect(url_for('login'))
                 
             user_data = res.data[0]
+        except Exception as e:
+            logger.error(f"Login error: {e}")
+            flash(f"Login failed: {e}", "danger")
+            return redirect(url_for('login'))
+
+        try:
             if check_password_hash(user_data.get('password_hash', ''), password):
                 uname = user_data.get('username', user_data.get('email', '').split('@')[0])
                 user = User(user_id=user_data['id'], username=uname, email=user_data['email'])
                 login_user(user)
                 return redirect(url_for('dashboard'))
-                
-            flash("Invalid email or password.", "danger")
+            else:
+                flash("Invalid email or password.", "danger")
         except Exception as e:
-            logger.error(f"Login error: {e}")
-            flash(f"Login failed: {e}", "danger")
-            return redirect(url_for('login'))
+            logger.error(f"Password check error: {e}")
+            flash("Password check failed.", "danger")
 
     return render_template('login.html')
 
