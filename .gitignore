@@ -1,6 +1,31 @@
+# Virtual environment
 .venv/
+
+# Python cache
 __pycache__/
-remove_bg_api_key.txt
+
+# Secrets & API Keys (NEVER push these)
+supabase_key.json
 firebase_key.json
-*.png
-*.jpg
+remove_bg_api_key.txt
+
+# Debug files
+debug_*.py
+debug_*.png
+debug_*.jpg
+check_*.py
+test_*.py
+error_log*.json
+error_log*.txt
+err_msg.txt
+flask_error.html
+migrate_db.py
+finish_migration.py
+map_photos.py
+ping_register.py
+parse_err.py
+extract_err.py
+
+# OS files
+.DS_Store
+Thumbs.db

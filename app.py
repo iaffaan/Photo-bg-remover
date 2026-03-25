@@ -11,8 +11,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from PIL import Image, ImageOps
-import firebase_admin
-from firebase_admin import credentials, firestore, storage
+from supabase import create_client, Client
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key_for_passport_generator'  # In prod, use environment variable
@@ -25,8 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize Firebase
 
-db = None
-bucket = None
+supabase: Client = None
 
 REMOVE_BG_API_URL = "https://api.remove.bg/v1.0/removebg"
 DEFAULT_REMOVE_BG_API_KEY = os.environ.get("REMOVE_BG_API_KEY", "").strip()
@@ -51,22 +49,26 @@ def get_remove_bg_api_key():
     return ""
 
 try:
-    firebase_key = os.getenv("FIREBASE_KEY")
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = os.environ.get("SUPABASE_KEY", "")
+    
+    # Fallback to local config file
+    local_config_file = os.path.join(PROJECT_DIR, "supabase_key.json")
+    if (not supabase_url or not supabase_key) and os.path.exists(local_config_file):
+        try:
+            with open(local_config_file, 'r') as f:
+                config = json.load(f)
+                supabase_url = config.get("SUPABASE_URL", supabase_url)
+                supabase_key = config.get("SUPABASE_KEY", supabase_key)
+        except Exception as e:
+            logger.error(f"Failed to read supabase_key.json: {e}")
 
-    if firebase_key:
-      if not firebase_admin._apps:
-        cred_dict = json.loads(firebase_key)
-        cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred, {
-            'storageBucket': 'passport-photo-app-dc549.appspot.com'
-        })
-        db = firestore.client()
-        bucket = storage.bucket()
+    if supabase_url and supabase_key:
+        supabase = create_client(supabase_url, supabase_key)
     else:
-      logger.warning("Firebase key not found")
-
+        logger.warning("Supabase URL or Key not found in environment variables or supabase_key.json")
 except Exception as e:
-    logger.error(f"Firebase initialization error: {e}")
+    logger.error(f"Supabase initialization error: {e}")
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -80,12 +82,17 @@ class User(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    if not db:
+    if not supabase:
         return None
-    user_doc = db.collection('users').document(user_id).get()
-    if user_doc.exists:
-        data = user_doc.to_dict()
-        return User(user_id=data.get('user_id'), username=data.get('username'), email=data.get('email'))
+    try:
+        res = supabase.table('users').select('*').eq('id', user_id).execute()
+        if res.data:
+            data = res.data[0]
+            # Use email prefix if username is not in schema
+            uname = data.get('username', data.get('email', '').split('@')[0])
+            return User(user_id=data.get('id'), username=uname, email=data.get('email'))
+    except Exception as e:
+        logger.error(f"Error loading user: {e}")
     return None
 
 def process_image(input_image_bytes, bg_color):
@@ -183,6 +190,62 @@ def process_image(input_image_bytes, bg_color):
         pass
     return final_bytes
 
+# --- Supabase Helper Functions ---
+def upload_to_supabase(file_bytes, user_id):
+    """Uploads image to Supabase Storage and returns public URL and blob path."""
+    if not supabase:
+        raise RuntimeError("Supabase not configured")
+    filename = f"{uuid.uuid4()}.jpg"
+    blob_path = f"{user_id}/{filename}"
+    supabase.storage.from_("photos").upload(blob_path, file_bytes, {"content-type": "image/jpeg"})
+    public_url = supabase.storage.from_("photos").get_public_url(blob_path)
+    return public_url, blob_path
+
+def save_photo(user_id, image_url, blob_path=None):
+    """Saves photo metadata to Supabase."""
+    if not supabase:
+        raise RuntimeError("Supabase not configured")
+    photo_id = str(uuid.uuid4())
+    supabase.table('photos').insert({
+        'id': photo_id,
+        'user_id': user_id,
+        'image_url': image_url,
+        'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }).execute()
+    return photo_id
+
+def get_user_photos(user_id):
+    """Fetches user photos from Supabase."""
+    if not supabase:
+        return []
+    res = supabase.table('photos').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
+    return res.data
+
+def delete_photo_from_supabase(photo_id, user_id):
+    """Deletes photo from Supabase Database and Storage."""
+    if not supabase:
+        return False, "Supabase not configured."
+        
+    res = supabase.table('photos').select('*').eq('id', photo_id).execute()
+    if not res.data:
+        return False, "Photo not found."
+        
+    photo_data = res.data[0]
+    if photo_data.get('user_id') != user_id:
+        return False, "Unauthorized action."
+        
+    try:
+        image_url = photo_data.get('image_url', '')
+        blob_path = image_url.split('/public/photos/')[-1] if '/public/photos/' in image_url else None
+        
+        if blob_path:
+            supabase.storage.from_("photos").remove([blob_path])
+        supabase.table('photos').delete().eq('id', photo_id).execute()
+        return True, "Photo deleted successfully."
+    except Exception as e:
+        logger.error(f"Delete error: {e}")
+        return False, "An error occurred while deleting the photo."
+
 @app.route('/')
 def home():
     return render_template('home.html')
@@ -197,25 +260,24 @@ def register():
         email = request.form.get('email')
         password = request.form.get('password')
         
-        if not db:
-            flash("Database not configured. Cannot register.", "danger")
+        if not supabase:
+            flash("Supabase not configured. Cannot register.", "danger")
             return redirect(url_for('register'))
             
-        users_ref = db.collection('users').where('email', '==', email).get()
-        if len(users_ref) > 0:
+        res = supabase.table('users').select('*').eq('email', email).execute()
+        if res.data:
             flash("Email already registered.", "danger")
             return redirect(url_for('register'))
             
         user_id = str(uuid.uuid4())
         hashed_password = generate_password_hash(password)
         
-        db.collection('users').document(user_id).set({
-            'user_id': user_id,
-            'username': username,
+        supabase.table('users').insert({
+            'id': user_id,
             'email': email,
             'password_hash': hashed_password,
-            'created_at': datetime.datetime.now(datetime.timezone.utc)
-        })
+            'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+        }).execute()
         
         flash("Registration successful. Please log in.", "success")
         return redirect(url_for('login'))
@@ -231,18 +293,19 @@ def login():
         email = request.form.get('email')
         password = request.form.get('password')
         
-        if not db:
-            flash("Database not configured. Cannot log in.", "danger")
+        if not supabase:
+            flash("Supabase not configured. Cannot log in.", "danger")
             return redirect(url_for('login'))
             
-        users_ref = db.collection('users').where('email', '==', email).get()
-        if not users_ref:
+        res = supabase.table('users').select('*').eq('email', email).execute()
+        if not res.data:
             flash("Invalid email or password.", "danger")
             return redirect(url_for('login'))
             
-        user_data = users_ref[0].to_dict()
+        user_data = res.data[0]
         if check_password_hash(user_data.get('password_hash', ''), password):
-            user = User(user_id=user_data['user_id'], username=user_data['username'], email=user_data['email'])
+            uname = user_data.get('username', user_data.get('email', '').split('@')[0])
+            user = User(user_id=user_data['id'], username=uname, email=user_data['email'])
             login_user(user)
             return redirect(url_for('dashboard'))
             
@@ -259,16 +322,11 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    if not db:
-        flash("Database not configured.", "danger")
+    if not supabase:
+        flash("Supabase not configured.", "danger")
         return render_template('dashboard.html', photos=[])
         
-    # Get user photos
-    photos_ref = db.collection('photos').where('user_id', '==', current_user.id).get()
-    photos = [doc.to_dict() for doc in photos_ref]
-    # Sort in memory to avoid requiring complex composite index in Firestore
-    photos.sort(key=lambda x: x.get('created_at', datetime.datetime.min), reverse=True)
-    
+    photos = get_user_photos(current_user.id)
     return render_template('dashboard.html', photos=photos)
 
 @app.route('/upload', methods=['GET', 'POST'])
@@ -301,31 +359,8 @@ def upload():
 
         # Try cloud save, but do not block user from getting the generated photo.
         try:
-            if not bucket or not db:
-                raise RuntimeError("Firebase not fully configured")
-
-            filename = f"{uuid.uuid4()}.jpg"
-            blob_path = f"photos/{current_user.id}/{filename}"
-            blob = bucket.blob(blob_path)
-
-            blob.upload_from_string(processed_bytes, content_type='image/jpeg')
-
-            # Some Firebase buckets disallow ACL/public access. Keep flow resilient.
-            try:
-                blob.make_public()
-            except Exception:
-                logger.warning("blob.make_public() failed; continuing with public_url fallback")
-
-            url = blob.public_url
-
-            photo_id = str(uuid.uuid4())
-            db.collection('photos').document(photo_id).set({
-                'photo_id': photo_id,
-                'user_id': current_user.id,
-                'image_url': url,
-                'blob_path': blob_path,
-                'created_at': datetime.datetime.now(datetime.timezone.utc)
-            })
+            url, blob_path = upload_to_supabase(processed_bytes, current_user.id)
+            save_photo(current_user.id, url, blob_path)
 
             flash('Photo generated and saved to your dashboard!', 'success')
             return redirect(url_for('dashboard'))
@@ -345,35 +380,14 @@ def file_too_large(_e):
     flash("File too large. Max allowed size is 5MB.", "danger")
     return redirect(url_for('upload'))
 
-@app.route('/delete/<photo_id>', methods=['POST'])
+@app.route('/delete/<photo_id>', methods=['POST', 'DELETE'])
 @login_required
-def delete_photo(photo_id):
-    if not db or not bucket:
-        flash("Database not configured.", "danger")
-        return redirect(url_for('dashboard'))
-        
-    photo_ref = db.collection('photos').document(photo_id)
-    photo_doc = photo_ref.get()
-    
-    if not photo_doc.exists:
-        flash("Photo not found.", "danger")
-        return redirect(url_for('dashboard'))
-        
-    photo_data = photo_doc.to_dict()
-    if photo_data.get('user_id') != current_user.id:
-        flash("Unauthorized action.", "danger")
-        return redirect(url_for('dashboard'))
-        
-    try:
-        blob = bucket.blob(photo_data['blob_path'])
-        if blob.exists():
-            blob.delete()
-        photo_ref.delete()
-        flash("Photo deleted successfully.", "success")
-    except Exception as e:
-        logger.error(f"Delete error: {e}")
-        flash("An error occurred while deleting the photo.", "danger")
-        
+def delete_photo_route(photo_id):
+    success, message = delete_photo_from_supabase(photo_id, current_user.id)
+    if success:
+        flash(message, "success")
+    else:
+        flash(message, "danger")
     return redirect(url_for('dashboard'))
 
 if __name__ == '__main__':

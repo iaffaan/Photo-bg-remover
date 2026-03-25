@@ -24,10 +24,10 @@
         <div class="photo-card glass">
             <img src="{{ photo.image_url }}" alt="Passport Photo" loading="lazy">
             <div class="photo-actions">
-                <a href="{{ photo.image_url }}" download="passport_photo.jpg" target="_blank" class="btn btn-secondary" style="flex: 1; justify-content: center;" title="Download Full Size">
+                <a href="{% if 'supabase' in photo.image_url %}{{ photo.image_url }}?download=passport_photo.jpg{% else %}{{ photo.image_url }}{% endif %}" download="passport_photo.jpg" target="_blank" class="btn btn-secondary" style="flex: 1; justify-content: center;" title="Download Full Size">
                     <i class="fa-solid fa-download"></i>
                 </a>
-                <form action="{{ url_for('delete_photo', photo_id=photo.photo_id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this photo permanently?');" style="margin: 0;">
+                <form action="{{ url_for('delete_photo_route', photo_id=photo.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this photo permanently?');" style="margin: 0;">
                     <button type="submit" class="btn btn-danger" style="padding: 0.75rem 1rem;" title="Delete Photo">
                         <i class="fa-solid fa-trash"></i>
                     </button>
