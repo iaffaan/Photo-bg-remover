@@ -197,7 +197,16 @@ def upload_to_supabase(file_bytes, user_id):
         raise RuntimeError("Supabase not configured")
     filename = f"{uuid.uuid4()}.jpg"
     blob_path = f"{user_id}/{filename}"
-    supabase.storage.from_("photos").upload(blob_path, file_bytes, {"content-type": "image/jpeg"})
+    try:
+        res = supabase.storage.from_("photos").upload(
+            blob_path,
+            file_bytes,
+            file_options={"content-type": "image/jpeg", "upsert": "false"}
+        )
+        logger.info(f"Storage upload response: {res}")
+    except Exception as upload_err:
+        logger.error(f"Storage upload error detail: {upload_err}")
+        raise
     public_url = supabase.storage.from_("photos").get_public_url(blob_path)
     return public_url, blob_path
 
