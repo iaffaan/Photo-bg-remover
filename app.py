@@ -33,19 +33,24 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 PASSPORT_SIZE = (413, 531)  # 35x45mm at 300 DPI
 
 def get_remove_bg_api_key():
-    """Return remove.bg API key from env var or local file fallback."""
-    api_key = os.environ.get("REMOVE_BG_API_KEY", "").strip()
-    if api_key:
-        return api_key
-    if DEFAULT_REMOVE_BG_API_KEY:
-        return DEFAULT_REMOVE_BG_API_KEY
+    """Return remove.bg API key. Prioritizes local file, then environment variable."""
     try:
         key_file_path = os.path.join(PROJECT_DIR, REMOVE_BG_API_KEY_FILE)
         if os.path.exists(key_file_path):
             with open(key_file_path, "r", encoding="utf-8-sig") as f:
-                return (f.read() or "").strip()
+                file_key = (f.read() or "").strip()
+                if file_key:
+                    return file_key
     except Exception:
         logger.exception("Failed reading REMOVE_BG_API_KEY_FILE")
+        
+    api_key = os.environ.get("REMOVE_BG_API_KEY", "").strip()
+    if api_key:
+        return api_key
+        
+    if DEFAULT_REMOVE_BG_API_KEY:
+        return DEFAULT_REMOVE_BG_API_KEY
+        
     return ""
 
 try:
