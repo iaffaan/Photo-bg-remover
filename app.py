@@ -263,24 +263,29 @@ def register():
         if not supabase:
             flash("Supabase not configured. Cannot register.", "danger")
             return redirect(url_for('register'))
+        
+        try:
+            res = supabase.table('users').select('*').eq('email', email).execute()
+            if res.data:
+                flash("Email already registered.", "danger")
+                return redirect(url_for('register'))
+                
+            user_id = str(uuid.uuid4())
+            hashed_password = generate_password_hash(password)
             
-        res = supabase.table('users').select('*').eq('email', email).execute()
-        if res.data:
-            flash("Email already registered.", "danger")
+            supabase.table('users').insert({
+                'id': user_id,
+                'email': email,
+                'password_hash': hashed_password,
+                'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+            }).execute()
+            
+            flash("Registration successful. Please log in.", "success")
+            return redirect(url_for('login'))
+        except Exception as e:
+            logger.error(f"Registration error: {e}")
+            flash(f"Registration failed: {e}", "danger")
             return redirect(url_for('register'))
-            
-        user_id = str(uuid.uuid4())
-        hashed_password = generate_password_hash(password)
-        
-        supabase.table('users').insert({
-            'id': user_id,
-            'email': email,
-            'password_hash': hashed_password,
-            'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
-        }).execute()
-        
-        flash("Registration successful. Please log in.", "success")
-        return redirect(url_for('login'))
         
     return render_template('register.html')
 
@@ -296,20 +301,26 @@ def login():
         if not supabase:
             flash("Supabase not configured. Cannot log in.", "danger")
             return redirect(url_for('login'))
-            
-        res = supabase.table('users').select('*').eq('email', email).execute()
-        if not res.data:
+        
+        try:
+            res = supabase.table('users').select('*').eq('email', email).execute()
+            if not res.data:
+                flash("Invalid email or password.", "danger")
+                return redirect(url_for('login'))
+                
+            user_data = res.data[0]
+            if check_password_hash(user_data.get('password_hash', ''), password):
+                uname = user_data.get('username', user_data.get('email', '').split('@')[0])
+                user = User(user_id=user_data['id'], username=uname, email=user_data['email'])
+                login_user(user)
+                return redirect(url_for('dashboard'))
+                
             flash("Invalid email or password.", "danger")
+        except Exception as e:
+            logger.error(f"Login error: {e}")
+            flash(f"Login failed: {e}", "danger")
             return redirect(url_for('login'))
-            
-        user_data = res.data[0]
-        if check_password_hash(user_data.get('password_hash', ''), password):
-            uname = user_data.get('username', user_data.get('email', '').split('@')[0])
-            user = User(user_id=user_data['id'], username=uname, email=user_data['email'])
-            login_user(user)
-            return redirect(url_for('dashboard'))
-            
-        flash("Invalid email or password.", "danger")
+
     return render_template('login.html')
 
 @app.route('/logout')
